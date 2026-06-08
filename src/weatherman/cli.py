@@ -53,7 +53,8 @@ def main() -> None:
     args = parse_args()
     print(
         f"[WeatherMan] Fetching {args.days}-day forecast for "
-        f'"{args.city}" (units={args.units}, output={args.output})'
+        f'"{args.city}" (units={args.units}, output={args.output})',
+        file=sys.stderr,
     )
 
     try:

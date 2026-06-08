@@ -1,5 +1,7 @@
 """Tests for weatherman.cli — argument parsing and entry point."""
 
+import json
+
 import pytest
 from weatherman.cli import parse_args, main
 
@@ -143,6 +145,15 @@ class TestMain:
         captured = capsys.readouterr()
         assert "temperature_2m" in captured.out
         assert "15.0" in captured.out
+
+    def test_main_json_output_is_valid_json_without_banner(self, capsys, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["weatherman", "--city", "London"])
+        monkeypatch.setattr("weatherman.cli.get_complete_weather", lambda *a, **kw: FAKE_WEATHER)
+        main()
+        captured = capsys.readouterr()
+        assert json.loads(captured.out) == FAKE_WEATHER
+        assert "[WeatherMan] Fetching" not in captured.out
+        assert "[WeatherMan] Fetching" in captured.err
 
     def test_main_calls_pipeline_with_correct_args(self, monkeypatch):
         calls = []
