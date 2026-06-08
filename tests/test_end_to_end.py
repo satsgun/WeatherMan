@@ -1,99 +1,94 @@
-"""End-to-end tests: given a city name, complete weather is returned."""
+"""End-to-end tests: given a city name, complete weather is returned.
+
+Patches weatherman.app.fetch_geocoding / fetch_weather / fetch_air_quality
+directly so the orchestration in app.py is exercised without hitting the
+network and without the "last patch wins" problem that arises when three
+modules all share the same requests.get reference.
+"""
 
 import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 import requests
 
 from weatherman.app import get_complete_weather, AppError
+from weatherman.geocoder import GeocodingAPIError
+from weatherman.weather import WeatherAPIError
+from weatherman.air_quality import AirQualityAPIError
 
 
 # ---------------------------------------------------------------------------
-# Shared mock API payloads
+# Canonical mock return values (already-parsed dicts, not HTTP responses)
 # ---------------------------------------------------------------------------
 
-MOCK_GEOCODING = {
-    "results": [{
-        "name": "London",
-        "latitude": 51.50853,
-        "longitude": -0.12574,
-        "elevation": 25.0,
-        "timezone": "Europe/London",
-        "country": "United Kingdom",
-        "country_code": "GB",
-    }]
-}
-
-MOCK_WEATHER_1DAY = {
+GEOCODED_LONDON = {
+    "name": "London",
     "latitude": 51.50853,
     "longitude": -0.12574,
+    "altitude": 25.0,
     "timezone": "Europe/London",
+    "country": "United Kingdom",
+}
+
+WEATHER_1DAY = {
     "current": {
-        "time": "2024-06-01T12:00",
         "temperature_2m": 18.5,
         "relative_humidity_2m": 65,
         "wind_speed_10m": 14.0,
         "wind_gusts_10m": 20.5,
         "precipitation_probability": 20,
         "weather_code": 2,
+        "weather_description": "Partly cloudy",
+        "weather_icon": "⛅",
     },
-    "daily": {
-        "time": ["2024-06-01"],
-        "temperature_2m_max": [22.0],
-        "temperature_2m_min": [13.5],
-        "weather_code": [2],
-        "precipitation_probability_max": [25],
-    },
+    "daily": [
+        {
+            "date": "2024-06-01",
+            "temperature_2m_max": 22.0,
+            "temperature_2m_min": 13.5,
+            "weather_code": 2,
+            "weather_description": "Partly cloudy",
+            "weather_icon": "⛅",
+            "precipitation_probability_max": 25,
+        }
+    ],
 }
 
-MOCK_WEATHER_7DAY = {
-    "latitude": 51.50853,
-    "longitude": -0.12574,
-    "timezone": "Europe/London",
-    "current": {
-        "time": "2024-06-01T12:00",
-        "temperature_2m": 18.5,
-        "relative_humidity_2m": 65,
-        "wind_speed_10m": 14.0,
-        "wind_gusts_10m": 20.5,
-        "precipitation_probability": 20,
-        "weather_code": 2,
-    },
-    "daily": {
-        "time": [f"2024-06-0{i}" for i in range(1, 8)],
-        "temperature_2m_max": [22.0, 21.0, 19.5, 23.1, 20.0, 18.5, 17.0],
-        "temperature_2m_min": [13.5, 12.0, 11.5, 14.0, 13.0, 12.5, 11.0],
-        "weather_code": [2, 61, 0, 3, 80, 1, 0],
-        "precipitation_probability_max": [25, 75, 5, 30, 60, 10, 5],
-    },
+WEATHER_7DAY = {
+    "current": WEATHER_1DAY["current"],
+    "daily": [
+        {
+            "date": f"2024-06-0{i}",
+            "temperature_2m_max": 22.0 - (i - 1),
+            "temperature_2m_min": 13.5 - (i - 1),
+            "weather_code": [2, 61, 0, 3, 80, 1, 0][i - 1],
+            "weather_description": ["Partly cloudy", "Slight rain", "Clear sky",
+                                    "Overcast", "Slight rain showers",
+                                    "Mainly clear", "Clear sky"][i - 1],
+            "weather_icon": ["⛅", "🌧️", "☀️", "☁️", "🌦️", "🌤️", "☀️"][i - 1],
+            "precipitation_probability_max": [25, 75, 5, 30, 60, 10, 5][i - 1],
+        }
+        for i in range(1, 8)
+    ],
 }
 
-MOCK_AIR_QUALITY = {
-    "latitude": 51.50853,
-    "longitude": -0.12574,
-    "timezone": "Europe/London",
-    "current": {
-        "time": "2024-06-01T12:00",
-        "us_aqi": 42,
-        "pm2_5": 8.5,
-        "pm10": 15.2,
-    },
+AIR_QUALITY = {
+    "us_aqi": 42,
+    "us_aqi_label": "Good",
+    "pm2_5": 8.5,
+    "pm10": 15.2,
 }
 
 
-def _make_mock_get(geo=MOCK_GEOCODING, wx=MOCK_WEATHER_1DAY, aq=MOCK_AIR_QUALITY):
-    """Return a side_effect function that dispatches mock responses by URL."""
-    def side_effect(url, **kwargs):
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status.return_value = None
-        if "geocoding-api" in url:
-            mock_resp.json.return_value = geo
-        elif "air-quality-api" in url:
-            mock_resp.json.return_value = aq
-        else:
-            mock_resp.json.return_value = wx
-        return mock_resp
-    return side_effect
+def _patches(geo=GEOCODED_LONDON, wx=WEATHER_1DAY, aq=AIR_QUALITY):
+    """Return a context manager that patches all three app-level callables."""
+    from contextlib import ExitStack
+    from unittest.mock import patch
+
+    stack = ExitStack()
+    mock_geo = stack.enter_context(patch("weatherman.app.fetch_geocoding", return_value=geo))
+    mock_wx  = stack.enter_context(patch("weatherman.app.fetch_weather",   return_value=wx))
+    mock_aq  = stack.enter_context(patch("weatherman.app.fetch_air_quality", return_value=aq))
+    return stack, mock_geo, mock_wx, mock_aq
 
 
 # ---------------------------------------------------------------------------
@@ -104,12 +99,9 @@ class TestGetCompleteWeatherStructure:
 
     @pytest.fixture
     def result(self):
-        with patch("weatherman.geocoder.requests.get") as geo_get, \
-             patch("weatherman.weather.requests.get") as wx_get, \
-             patch("weatherman.air_quality.requests.get") as aq_get:
-            geo_get.return_value = _make_mock_response(MOCK_GEOCODING)
-            wx_get.return_value = _make_mock_response(MOCK_WEATHER_1DAY)
-            aq_get.return_value = _make_mock_response(MOCK_AIR_QUALITY)
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY), \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
             return get_complete_weather("London")
 
     def test_returns_dict(self, result):
@@ -136,12 +128,9 @@ class TestGetCompleteWeatherLocation:
 
     @pytest.fixture
     def result(self):
-        with patch("weatherman.geocoder.requests.get") as geo_get, \
-             patch("weatherman.weather.requests.get") as wx_get, \
-             patch("weatherman.air_quality.requests.get") as aq_get:
-            geo_get.return_value = _make_mock_response(MOCK_GEOCODING)
-            wx_get.return_value = _make_mock_response(MOCK_WEATHER_1DAY)
-            aq_get.return_value = _make_mock_response(MOCK_AIR_QUALITY)
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY), \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
             return get_complete_weather("London")
 
     def test_location_name(self, result):
@@ -171,12 +160,9 @@ class TestGetCompleteWeatherCurrentFields:
 
     @pytest.fixture
     def result(self):
-        with patch("weatherman.geocoder.requests.get") as geo_get, \
-             patch("weatherman.weather.requests.get") as wx_get, \
-             patch("weatherman.air_quality.requests.get") as aq_get:
-            geo_get.return_value = _make_mock_response(MOCK_GEOCODING)
-            wx_get.return_value = _make_mock_response(MOCK_WEATHER_1DAY)
-            aq_get.return_value = _make_mock_response(MOCK_AIR_QUALITY)
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY), \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
             return get_complete_weather("London")
 
     def test_temperature(self, result):
@@ -212,12 +198,9 @@ class TestGetCompleteWeatherDaily:
 
     @pytest.fixture
     def result_7day(self):
-        with patch("weatherman.geocoder.requests.get") as geo_get, \
-             patch("weatherman.weather.requests.get") as wx_get, \
-             patch("weatherman.air_quality.requests.get") as aq_get:
-            geo_get.return_value = _make_mock_response(MOCK_GEOCODING)
-            wx_get.return_value = _make_mock_response(MOCK_WEATHER_7DAY)
-            aq_get.return_value = _make_mock_response(MOCK_AIR_QUALITY)
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_7DAY), \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
             return get_complete_weather("London", days=7)
 
     def test_daily_is_list(self, result_7day):
@@ -262,12 +245,9 @@ class TestGetCompleteWeatherAirQuality:
 
     @pytest.fixture
     def result(self):
-        with patch("weatherman.geocoder.requests.get") as geo_get, \
-             patch("weatherman.weather.requests.get") as wx_get, \
-             patch("weatherman.air_quality.requests.get") as aq_get:
-            geo_get.return_value = _make_mock_response(MOCK_GEOCODING)
-            wx_get.return_value = _make_mock_response(MOCK_WEATHER_1DAY)
-            aq_get.return_value = _make_mock_response(MOCK_AIR_QUALITY)
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY), \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
             return get_complete_weather("London")
 
     def test_us_aqi(self, result):
@@ -284,34 +264,51 @@ class TestGetCompleteWeatherAirQuality:
 
 
 # ---------------------------------------------------------------------------
-# Units propagation
+# Orchestration — geocoded coords are forwarded to weather + AQ
 # ---------------------------------------------------------------------------
 
-class TestGetCompleteWeatherUnits:
+class TestGetCompleteWeatherOrchestration:
 
-    @patch("weatherman.weather.requests.get")
-    @patch("weatherman.geocoder.requests.get")
-    @patch("weatherman.air_quality.requests.get")
-    def test_imperial_units_passed_to_weather(self, aq_get, geo_get, wx_get):
-        geo_get.return_value = _make_mock_response(MOCK_GEOCODING)
-        wx_get.return_value = _make_mock_response(MOCK_WEATHER_1DAY)
-        aq_get.return_value = _make_mock_response(MOCK_AIR_QUALITY)
-        get_complete_weather("London", units="imperial")
-        params = wx_get.call_args[1]["params"]
-        assert params["temperature_unit"] == "fahrenheit"
-        assert params["wind_speed_unit"] == "mph"
+    def test_geocoded_lat_lon_passed_to_fetch_weather(self):
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON) as mock_geo, \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY) as mock_wx, \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
+            get_complete_weather("London")
+        mock_wx.assert_called_once()
+        args = mock_wx.call_args
+        assert args[0][0] == 51.50853   # lat
+        assert args[0][1] == -0.12574   # lon
 
-    @patch("weatherman.weather.requests.get")
-    @patch("weatherman.geocoder.requests.get")
-    @patch("weatherman.air_quality.requests.get")
-    def test_metric_units_passed_to_weather(self, aq_get, geo_get, wx_get):
-        geo_get.return_value = _make_mock_response(MOCK_GEOCODING)
-        wx_get.return_value = _make_mock_response(MOCK_WEATHER_1DAY)
-        aq_get.return_value = _make_mock_response(MOCK_AIR_QUALITY)
-        get_complete_weather("London", units="metric")
-        params = wx_get.call_args[1]["params"]
-        assert params["temperature_unit"] == "celsius"
-        assert params["wind_speed_unit"] == "kmh"
+    def test_geocoded_lat_lon_passed_to_fetch_air_quality(self):
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY), \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY) as mock_aq:
+            get_complete_weather("London")
+        mock_aq.assert_called_once()
+        args = mock_aq.call_args
+        assert args[0][0] == 51.50853
+        assert args[0][1] == -0.12574
+
+    def test_days_passed_to_fetch_weather(self):
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_7DAY) as mock_wx, \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
+            get_complete_weather("London", days=7)
+        assert mock_wx.call_args[1]["days"] == 7
+
+    def test_imperial_units_passed_to_fetch_weather(self):
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY) as mock_wx, \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
+            get_complete_weather("London", units="imperial")
+        assert mock_wx.call_args[1]["units"] == "imperial"
+
+    def test_metric_units_passed_to_fetch_weather(self):
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY) as mock_wx, \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
+            get_complete_weather("London", units="metric")
+        assert mock_wx.call_args[1]["units"] == "metric"
 
 
 # ---------------------------------------------------------------------------
@@ -320,50 +317,30 @@ class TestGetCompleteWeatherUnits:
 
 class TestGetCompleteWeatherErrorPropagation:
 
-    @patch("weatherman.geocoder.requests.get")
-    def test_geocoding_failure_raises_app_error(self, mock_get):
-        mock_get.side_effect = requests.exceptions.ConnectionError("unreachable")
-        with pytest.raises(AppError):
-            get_complete_weather("London")
+    def test_geocoding_failure_raises_app_error(self):
+        with patch("weatherman.app.fetch_geocoding",
+                   side_effect=GeocodingAPIError("unreachable")):
+            with pytest.raises(AppError):
+                get_complete_weather("London")
 
-    @patch("weatherman.weather.requests.get")
-    @patch("weatherman.geocoder.requests.get")
-    @patch("weatherman.air_quality.requests.get")
-    def test_weather_failure_raises_app_error(self, aq_get, geo_get, wx_get):
-        geo_get.return_value = _make_mock_response(MOCK_GEOCODING)
-        wx_get.side_effect = requests.exceptions.ConnectionError("unreachable")
-        aq_get.return_value = _make_mock_response(MOCK_AIR_QUALITY)
-        with pytest.raises(AppError):
-            get_complete_weather("London")
+    def test_weather_failure_raises_app_error(self):
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",
+                   side_effect=WeatherAPIError("unreachable")), \
+             patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
+            with pytest.raises(AppError):
+                get_complete_weather("London")
 
-    @patch("weatherman.weather.requests.get")
-    @patch("weatherman.geocoder.requests.get")
-    @patch("weatherman.air_quality.requests.get")
-    def test_air_quality_failure_raises_app_error(self, aq_get, geo_get, wx_get):
-        geo_get.return_value = _make_mock_response(MOCK_GEOCODING)
-        wx_get.return_value = _make_mock_response(MOCK_WEATHER_1DAY)
-        aq_get.side_effect = requests.exceptions.ConnectionError("unreachable")
-        with pytest.raises(AppError):
-            get_complete_weather("London")
+    def test_air_quality_failure_raises_app_error(self):
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
+             patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY), \
+             patch("weatherman.app.fetch_air_quality",
+                   side_effect=AirQualityAPIError("unreachable")):
+            with pytest.raises(AppError):
+                get_complete_weather("London")
 
-    @patch("weatherman.geocoder.requests.get")
-    def test_city_not_found_raises_app_error(self, mock_get):
-        mock_get.return_value = _make_mock_response({"results": []})
-        with pytest.raises(AppError):
-            get_complete_weather("Xyzzyville")
-
-
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
-
-def _make_mock_response(json_data, status_code=200):
-    mock_resp = MagicMock()
-    mock_resp.status_code = status_code
-    mock_resp.json.return_value = json_data
-    mock_resp.raise_for_status.side_effect = (
-        None
-        if status_code == 200
-        else requests.exceptions.HTTPError(response=mock_resp)
-    )
-    return mock_resp
+    def test_city_not_found_raises_app_error(self):
+        with patch("weatherman.app.fetch_geocoding",
+                   side_effect=GeocodingAPIError("City not found: 'Xyzzyville'")):
+            with pytest.raises(AppError):
+                get_complete_weather("Xyzzyville")
