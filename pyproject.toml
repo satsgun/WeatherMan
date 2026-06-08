@@ -17,6 +17,7 @@ weatherman = "weatherman.cli:main"
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    "genbadge[coverage]>=1.1",
 ]
 
 [tool.setuptools.packages.find]
