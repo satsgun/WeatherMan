@@ -150,3 +150,17 @@ class TestFetchGeocodingErrors:
         mock_get.side_effect = requests.exceptions.Timeout()
         with pytest.raises(GeocodingAPIError):
             fetch_geocoding("London")
+
+    @patch("weatherman.geocoder.requests.get")
+    def test_missing_required_field_raises_geocoding_error(self, mock_get):
+        hit = {k: v for k, v in MOCK_GEOCODING_RESPONSE["results"][0].items() if k != "latitude"}
+        response = {"results": [hit]}
+        mock_get.return_value = _mock_get(response)
+        with pytest.raises(GeocodingAPIError):
+            fetch_geocoding("London")
+
+    @patch("weatherman.geocoder.requests.get")
+    def test_non_dict_result_raises_geocoding_error(self, mock_get):
+        mock_get.return_value = _mock_get({"results": ["not-a-dict"]})
+        with pytest.raises(GeocodingAPIError):
+            fetch_geocoding("London")

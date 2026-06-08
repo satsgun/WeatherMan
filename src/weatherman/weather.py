@@ -67,32 +67,35 @@ def fetch_weather(
 
 
 def _parse(data: dict) -> dict:
-    raw_current = data["current"]
-    code = raw_current["weather_code"]
+    try:
+        raw_current = data["current"]
+        code = raw_current["weather_code"]
 
-    current = {
-        "temperature_2m":           raw_current["temperature_2m"],
-        "relative_humidity_2m":     raw_current["relative_humidity_2m"],
-        "wind_speed_10m":           raw_current["wind_speed_10m"],
-        "wind_gusts_10m":           raw_current["wind_gusts_10m"],
-        "precipitation_probability": raw_current["precipitation_probability"],
-        "weather_code":             code,
-        "weather_description":      wmo_description(code),
-        "weather_icon":             wmo_icon(code),
-    }
-
-    raw_daily = data["daily"]
-    daily = [
-        {
-            "date":                         raw_daily["time"][i],
-            "temperature_2m_max":           raw_daily["temperature_2m_max"][i],
-            "temperature_2m_min":           raw_daily["temperature_2m_min"][i],
-            "weather_code":                 raw_daily["weather_code"][i],
-            "weather_description":          wmo_description(raw_daily["weather_code"][i]),
-            "weather_icon":                 wmo_icon(raw_daily["weather_code"][i]),
-            "precipitation_probability_max": raw_daily["precipitation_probability_max"][i],
+        current = {
+            "temperature_2m":           raw_current["temperature_2m"],
+            "relative_humidity_2m":     raw_current["relative_humidity_2m"],
+            "wind_speed_10m":           raw_current["wind_speed_10m"],
+            "wind_gusts_10m":           raw_current["wind_gusts_10m"],
+            "precipitation_probability": raw_current["precipitation_probability"],
+            "weather_code":             code,
+            "weather_description":      wmo_description(code),
+            "weather_icon":             wmo_icon(code),
         }
-        for i in range(len(raw_daily["time"]))
-    ]
+
+        raw_daily = data["daily"]
+        daily = [
+            {
+                "date":                         raw_daily["time"][i],
+                "temperature_2m_max":           raw_daily["temperature_2m_max"][i],
+                "temperature_2m_min":           raw_daily["temperature_2m_min"][i],
+                "weather_code":                 raw_daily["weather_code"][i],
+                "weather_description":          wmo_description(raw_daily["weather_code"][i]),
+                "weather_icon":                 wmo_icon(raw_daily["weather_code"][i]),
+                "precipitation_probability_max": raw_daily["precipitation_probability_max"][i],
+            }
+            for i in range(len(raw_daily["time"]))
+        ]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise WeatherAPIError(f"Unexpected weather API response: {exc}") from exc
 
     return {"current": current, "daily": daily}

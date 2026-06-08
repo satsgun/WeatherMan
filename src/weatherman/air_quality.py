@@ -53,12 +53,15 @@ def fetch_air_quality(lat: float, lon: float) -> dict:
     except requests.exceptions.RequestException as exc:
         raise AirQualityAPIError(f"Air quality API request failed: {exc}") from exc
 
-    raw = data["current"]
-    aqi_value = raw["us_aqi"]
+    try:
+        raw = data["current"]
+        aqi_value = raw["us_aqi"]
 
-    return {
-        "us_aqi":       aqi_value,
-        "us_aqi_label": aqi_label(aqi_value),
-        "pm2_5":        raw["pm2_5"],
-        "pm10":         raw["pm10"],
-    }
+        return {
+            "us_aqi":       aqi_value,
+            "us_aqi_label": aqi_label(aqi_value),
+            "pm2_5":        raw["pm2_5"],
+            "pm10":         raw["pm10"],
+        }
+    except (KeyError, TypeError) as exc:
+        raise AirQualityAPIError(f"Unexpected air quality API response: {exc}") from exc
