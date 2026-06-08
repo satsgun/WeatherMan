@@ -60,7 +60,7 @@ def main() -> None:
     try:
         data = get_complete_weather(args.city, days=args.days, units=args.units)
     except AppError as exc:
-        print(f"[WeatherMan] Error: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     if args.output == "json":
