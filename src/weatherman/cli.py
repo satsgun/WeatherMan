@@ -77,7 +77,10 @@ def _print_text(data: dict, units: str) -> None:
     cur = data["current"]
     aq = data["air_quality"]
 
-    print(f"\n{loc['name']}, {loc.get('country', '')}")
+    header = loc["name"]
+    if loc.get("country"):
+        header += f", {loc['country']}"
+    print(f"\n{header}")
     print(f"  {cur.get('weather_icon', '')} {cur.get('weather_description', '')}")
     print(f"  Temperature : {cur['temperature_2m']}{unit_temp}")
     print(f"  Humidity    : {cur['relative_humidity_2m']}%")

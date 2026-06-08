@@ -182,6 +182,15 @@ class TestMain:
         assert "2026-06-08" in captured.out
         assert "18.0" in captured.out
 
+    def test_main_text_output_omits_dangling_comma_when_country_missing(self, capsys, monkeypatch):
+        weather_without_country = {**FAKE_WEATHER, "location": {**FAKE_WEATHER["location"], "country": ""}}
+        monkeypatch.setattr("sys.argv", ["weatherman", "--city", "London", "--output", "text"])
+        monkeypatch.setattr("weatherman.cli.get_complete_weather", lambda *a, **kw: weather_without_country)
+        main()
+        captured = capsys.readouterr()
+        assert "\nLondon\n" in captured.out
+        assert "London," not in captured.out
+
     def test_main_exits_nonzero_on_app_error(self, monkeypatch):
         from weatherman.app import AppError
         monkeypatch.setattr("sys.argv", ["weatherman", "--city", "Nowhere"])
