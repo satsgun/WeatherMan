@@ -99,34 +99,85 @@ class TestParseArgsInvalidInputs:
 
 
 # ---------------------------------------------------------------------------
-# main — placeholder output
+# main — full pipeline
 # ---------------------------------------------------------------------------
+
+FAKE_WEATHER = {
+    "location": {"name": "London", "country": "GB", "latitude": 51.5, "longitude": -0.1},
+    "current": {
+        "temperature_2m": 15.0,
+        "relative_humidity_2m": 72,
+        "wind_speed_10m": 18.0,
+        "wind_gusts_10m": 28.0,
+        "precipitation_probability": 20,
+        "weather_code": 1,
+        "weather_description": "Mainly Clear",
+        "weather_icon": "🌤",
+    },
+    "daily": [
+        {
+            "date": "2026-06-08",
+            "temperature_2m_max": 18.0,
+            "temperature_2m_min": 11.0,
+            "weather_code": 1,
+            "weather_description": "Mainly Clear",
+            "weather_icon": "🌤",
+            "precipitation_probability_max": 10,
+        }
+    ],
+    "air_quality": {
+        "us_aqi": 42,
+        "us_aqi_label": "Good",
+        "pm2_5": 5.1,
+        "pm10": 9.3,
+    },
+}
+
 
 class TestMain:
 
-    def test_main_prints_placeholder(self, capsys, monkeypatch):
+    def test_main_json_output_contains_weather_data(self, capsys, monkeypatch):
         monkeypatch.setattr("sys.argv", ["weatherman", "--city", "London"])
+        monkeypatch.setattr("weatherman.cli.get_complete_weather", lambda *a, **kw: FAKE_WEATHER)
         main()
         captured = capsys.readouterr()
-        assert "London" in captured.out
+        assert "temperature_2m" in captured.out
+        assert "15.0" in captured.out
 
-    def test_main_includes_days_in_output(self, capsys, monkeypatch):
+    def test_main_calls_pipeline_with_correct_args(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr("sys.argv", ["weatherman", "--city", "Berlin", "--days", "5", "--units", "imperial"])
         monkeypatch.setattr(
-            "sys.argv",
-            ["weatherman", "--city", "Berlin", "--days", "5"],
+            "weatherman.cli.get_complete_weather",
+            lambda city, days, units: calls.append((city, days, units)) or FAKE_WEATHER,
         )
         main()
-        captured = capsys.readouterr()
-        assert "5" in captured.out
+        assert calls == [("Berlin", 5, "imperial")]
 
-    def test_main_includes_units_in_output(self, capsys, monkeypatch):
-        monkeypatch.setattr(
-            "sys.argv",
-            ["weatherman", "--city", "Rome", "--units", "imperial"],
-        )
+    def test_main_text_output_contains_weather_data(self, capsys, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["weatherman", "--city", "London", "--output", "text"])
+        monkeypatch.setattr("weatherman.cli.get_complete_weather", lambda *a, **kw: FAKE_WEATHER)
         main()
         captured = capsys.readouterr()
-        assert "imperial" in captured.out
+        assert "15.0" in captured.out
+        assert "Mainly Clear" in captured.out
+        assert "Good" in captured.out
+
+    def test_main_text_output_shows_forecast(self, capsys, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["weatherman", "--city", "London", "--output", "text", "--days", "3"])
+        monkeypatch.setattr("weatherman.cli.get_complete_weather", lambda *a, **kw: FAKE_WEATHER)
+        main()
+        captured = capsys.readouterr()
+        assert "2026-06-08" in captured.out
+        assert "18.0" in captured.out
+
+    def test_main_exits_nonzero_on_app_error(self, monkeypatch):
+        from weatherman.app import AppError
+        monkeypatch.setattr("sys.argv", ["weatherman", "--city", "Nowhere"])
+        monkeypatch.setattr("weatherman.cli.get_complete_weather", lambda *a, **kw: (_ for _ in ()).throw(AppError("geocode failed")))
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 1
 
     def test_main_exits_nonzero_on_missing_city(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["weatherman"])
