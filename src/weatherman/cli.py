@@ -28,9 +28,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--days",
         type=int,
+        choices=range(1, 8),
         default=1,
         metavar="N",
-        help="Number of forecast days to retrieve (default: 1).",
+        help="Number of forecast days to retrieve, 1-7 (default: 1).",
     )
     parser.add_argument(
         "--units",

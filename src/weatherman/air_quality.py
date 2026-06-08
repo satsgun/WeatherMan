@@ -5,6 +5,7 @@ from __future__ import annotations
 import requests
 
 _BASE_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+_TIMEOUT = 10
 
 _CURRENT_FIELDS = "us_aqi,pm2_5,pm10"
 
@@ -46,7 +47,7 @@ def fetch_air_quality(lat: float, lon: float) -> dict:
     }
 
     try:
-        response = requests.get(_BASE_URL, params=params)
+        response = requests.get(_BASE_URL, params=params, timeout=_TIMEOUT)
         response.raise_for_status()
         data = response.json()
     except requests.exceptions.RequestException as exc:

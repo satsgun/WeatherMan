@@ -7,6 +7,7 @@ import requests
 from weatherman.wmo_codes import wmo_description, wmo_icon
 
 _BASE_URL = "https://api.open-meteo.com/v1/forecast"
+_TIMEOUT = 10
 
 _CURRENT_FIELDS = ",".join([
     "temperature_2m",
@@ -56,7 +57,7 @@ def fetch_weather(
     }
 
     try:
-        response = requests.get(_BASE_URL, params=params)
+        response = requests.get(_BASE_URL, params=params, timeout=_TIMEOUT)
         response.raise_for_status()
         data = response.json()
     except requests.exceptions.RequestException as exc:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import requests
 
 _BASE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+_TIMEOUT = 10
 
 
 class GeocodingAPIError(Exception):
@@ -25,7 +26,7 @@ def fetch_geocoding(city: str) -> dict:
     }
 
     try:
-        response = requests.get(_BASE_URL, params=params)
+        response = requests.get(_BASE_URL, params=params, timeout=_TIMEOUT)
         response.raise_for_status()
         data = response.json()
     except requests.exceptions.RequestException as exc:
