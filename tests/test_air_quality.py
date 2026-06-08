@@ -204,3 +204,24 @@ class TestFetchAirQualityErrors:
         mock_get.side_effect = requests.exceptions.ConnectionError("unreachable")
         with pytest.raises(AirQualityAPIError, match=r"(?i)air quality"):
             fetch_air_quality(51.5, -0.12)
+
+    @patch("weatherman.air_quality.requests.get")
+    def test_missing_current_key_raises_air_quality_api_error(self, mock_get):
+        response = {k: v for k, v in MOCK_AQ_RESPONSE.items() if k != "current"}
+        mock_get.return_value = _mock_get(response)
+        with pytest.raises(AirQualityAPIError):
+            fetch_air_quality(51.5, -0.12)
+
+    @patch("weatherman.air_quality.requests.get")
+    def test_missing_current_field_raises_air_quality_api_error(self, mock_get):
+        current = {k: v for k, v in MOCK_AQ_RESPONSE["current"].items() if k != "us_aqi"}
+        response = {**MOCK_AQ_RESPONSE, "current": current}
+        mock_get.return_value = _mock_get(response)
+        with pytest.raises(AirQualityAPIError):
+            fetch_air_quality(51.5, -0.12)
+
+    @patch("weatherman.air_quality.requests.get")
+    def test_non_dict_payload_raises_air_quality_api_error(self, mock_get):
+        mock_get.return_value = _mock_get(None)
+        with pytest.raises(AirQualityAPIError):
+            fetch_air_quality(51.5, -0.12)

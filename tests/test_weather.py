@@ -304,3 +304,32 @@ class TestFetchWeatherErrors:
         mock_get.side_effect = requests.exceptions.ConnectionError("unreachable")
         with pytest.raises(WeatherAPIError, match=r"(?i)weather"):
             fetch_weather(51.5, -0.12)
+
+    @patch("weatherman.weather.requests.get")
+    def test_missing_current_key_raises_weather_api_error(self, mock_get):
+        response = {k: v for k, v in MOCK_WEATHER_RESPONSE_1DAY.items() if k != "current"}
+        mock_get.return_value = _mock_get(response)
+        with pytest.raises(WeatherAPIError):
+            fetch_weather(51.5, -0.12)
+
+    @patch("weatherman.weather.requests.get")
+    def test_missing_current_field_raises_weather_api_error(self, mock_get):
+        current = {k: v for k, v in MOCK_WEATHER_RESPONSE_1DAY["current"].items() if k != "temperature_2m"}
+        response = {**MOCK_WEATHER_RESPONSE_1DAY, "current": current}
+        mock_get.return_value = _mock_get(response)
+        with pytest.raises(WeatherAPIError):
+            fetch_weather(51.5, -0.12)
+
+    @patch("weatherman.weather.requests.get")
+    def test_mismatched_daily_array_lengths_raises_weather_api_error(self, mock_get):
+        daily = {**MOCK_WEATHER_RESPONSE_1DAY["daily"], "temperature_2m_max": []}
+        response = {**MOCK_WEATHER_RESPONSE_1DAY, "daily": daily}
+        mock_get.return_value = _mock_get(response)
+        with pytest.raises(WeatherAPIError):
+            fetch_weather(51.5, -0.12)
+
+    @patch("weatherman.weather.requests.get")
+    def test_non_dict_payload_raises_weather_api_error(self, mock_get):
+        mock_get.return_value = _mock_get(None)
+        with pytest.raises(WeatherAPIError):
+            fetch_weather(51.5, -0.12)

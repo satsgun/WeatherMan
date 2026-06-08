@@ -36,12 +36,15 @@ def fetch_geocoding(city: str) -> dict:
     if not results:
         raise GeocodingAPIError(f"City not found: {city!r}")
 
-    hit = results[0]
-    return {
-        "name":      hit["name"],
-        "latitude":  hit["latitude"],
-        "longitude": hit["longitude"],
-        "altitude":  hit.get("elevation", 0.0),
-        "timezone":  hit["timezone"],
-        "country":   hit.get("country", ""),
-    }
+    try:
+        hit = results[0]
+        return {
+            "name":      hit["name"],
+            "latitude":  hit["latitude"],
+            "longitude": hit["longitude"],
+            "altitude":  hit.get("elevation", 0.0),
+            "timezone":  hit["timezone"],
+            "country":   hit.get("country", ""),
+        }
+    except (KeyError, IndexError, TypeError) as exc:
+        raise GeocodingAPIError(f"Unexpected geocoding API response: {exc}") from exc
