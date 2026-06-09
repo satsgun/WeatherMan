@@ -7,8 +7,7 @@ modules all share the same requests.get reference.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
-import requests
+from unittest.mock import patch
 
 from weatherman.app import get_complete_weather, AppError
 from weatherman.geocoder import GeocodingAPIError
@@ -270,7 +269,7 @@ class TestGetCompleteWeatherAirQuality:
 class TestGetCompleteWeatherOrchestration:
 
     def test_geocoded_lat_lon_passed_to_fetch_weather(self):
-        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON) as mock_geo, \
+        with patch("weatherman.app.fetch_geocoding", return_value=GEOCODED_LONDON), \
              patch("weatherman.app.fetch_weather",    return_value=WEATHER_1DAY) as mock_wx, \
              patch("weatherman.app.fetch_air_quality", return_value=AIR_QUALITY):
             get_complete_weather("London")

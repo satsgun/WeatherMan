@@ -1,6 +1,5 @@
 """Tests for WMO weather interpretation code mapping."""
 
-import pytest
 from weatherman.wmo_codes import wmo_description, wmo_icon, WMO_CODES
 
 
